@@ -9,7 +9,7 @@
   ],
   "license": "MIT",
   "bin": {
-    "rsyncui": "./bin/rsyncui.js"
+    "rsyncui": "bin/rsyncui.js"
   },
   "files": [
     "bin",
