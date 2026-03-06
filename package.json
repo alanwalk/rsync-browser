@@ -1,0 +1,19 @@
+{
+  "name": "rsync-browser",
+  "version": "1.0.0",
+  "description": "Local GUI for browsing files exposed by an rsync module",
+  "keywords": [
+    "rsync",
+    "browser",
+    "gui"
+  ],
+  "license": "MIT",
+  "files": [
+    "server.js",
+    "public",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node server.js"
+  }
+}

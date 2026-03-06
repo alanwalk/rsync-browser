@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rsync 文件浏览器</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <p class="eyebrow">Rsync Remote Browser</p>
+        <h1>服务器文件浏览</h1>
+        <p class="subtitle">
+          基于 `rsync --list-only` 的只读浏览器，用来查看远端模块中的目录和文件。
+        </p>
+      </section>
+
+      <div id="globalErrorBox" class="error-box hidden"></div>
+
+      <section id="configPanel" class="panel config-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Connection</p>
+            <h2>连接配置</h2>
+          </div>
+          <p class="section-copy">修改后立即用于后续浏览请求，配置会保存在当前项目目录。</p>
+        </div>
+
+        <form id="configForm" class="config-form">
+          <label class="field field-wide">
+            <span class="label">密码文件路径</span>
+            <input id="passwordFileInput" name="passwordFile" type="text" />
+          </label>
+          <label class="field">
+            <span class="label">用户名</span>
+            <input id="userInput" name="user" type="text" />
+          </label>
+          <label class="field field-double">
+            <span class="label">主机</span>
+            <input id="hostInput" name="host" type="text" />
+          </label>
+          <label class="field">
+            <span class="label">模块名</span>
+            <input id="moduleInput" name="module" type="text" />
+          </label>
+          <label class="field field-wide">
+            <span class="label">Rsync 程序路径</span>
+            <input id="rsyncBinInput" name="rsyncBin" type="text" />
+          </label>
+          <div class="config-actions">
+            <button id="cancelConfigButton" type="button" class="secondary hidden">取消配置</button>
+            <button id="saveConfigButton" type="submit">保存配置</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="browserPanel" class="panel hidden">
+        <div class="section-head browser-head">
+          <div>
+            <p class="eyebrow">Browser</p>
+            <h2>目录浏览</h2>
+            <div class="label">当前路径</div>
+            <div id="breadcrumb" class="breadcrumb">/</div>
+          </div>
+          <div class="actions">
+            <button id="toggleConfigButton" class="secondary">配置</button>
+            <button id="upButton" class="secondary">返回上级</button>
+            <button id="refreshButton">刷新</button>
+          </div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-card">
+            <span class="label">远端模块</span>
+            <strong id="remoteTarget">-</strong>
+          </div>
+          <div class="meta-card">
+            <span class="label">Rsync 路径</span>
+            <strong id="rsyncBin">-</strong>
+          </div>
+          <div class="meta-card">
+            <span class="label">状态</span>
+            <strong id="statusText">初始化中</strong>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>类型</th>
+                <th>大小</th>
+                <th>修改时间</th>
+                <th>权限</th>
+              </tr>
+            </thead>
+            <tbody id="fileTable"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <template id="emptyState">
+      <tr>
+        <td colspan="5" class="empty-row">当前目录没有可显示的内容</td>
+      </tr>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
