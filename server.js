@@ -1,5 +1,6 @@
 const http = require("http");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { URL } = require("url");
 const { execFile } = require("child_process");
@@ -7,7 +8,8 @@ const { execFile } = require("child_process");
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const PUBLIC_DIR = path.join(__dirname, "public");
-const CONFIG_PATH = path.join(__dirname, ".rsync-browser.config.json");
+const CONFIG_DIR = process.env.RSYNC_BROWSER_CONFIG_DIR || path.join(os.homedir(), ".config", "rsync-browser");
+const CONFIG_PATH = process.env.RSYNC_BROWSER_CONFIG_PATH || path.join(CONFIG_DIR, "config.json");
 
 const DEFAULTS = {
   rsyncBin: process.env.RSYNC_BIN || "/opt/homebrew/bin/rsync",
@@ -87,6 +89,7 @@ let currentConfig = normalizeConfig({
 let isConfigured = Boolean(storedConfig);
 
 function saveConfig(config) {
+  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
   fs.writeFileSync(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
@@ -167,17 +170,16 @@ function normalizeRemotePath(input) {
     return "";
   }
 
-  const cleaned = raw
+  const segments = raw
     .replace(/\\/g, "/")
     .split("/")
-    .filter(Boolean)
-    .join("/");
+    .filter(Boolean);
 
-  if (cleaned.includes("..")) {
+  if (segments.some((segment) => segment === "..")) {
     throw new Error("Path traversal is not allowed.");
   }
 
-  return cleaned;
+  return segments.filter((segment) => segment !== ".").join("/");
 }
 
 function buildRemoteTarget(config, remotePath) {
@@ -213,6 +215,9 @@ function parseRsyncLine(line) {
 
   const [, permissions, rawSize, date, time, name] = match;
   const cleanName = name.endsWith("/") ? name.slice(0, -1) : name;
+  if (!cleanName || cleanName === ".") {
+    return null;
+  }
 
   return {
     name: cleanName,
@@ -225,7 +230,7 @@ function parseRsyncLine(line) {
 
 function listRemoteDirectory(config, remotePath) {
   const target = buildRemoteTarget(config, remotePath);
-  const args = ["-av", "--list-only", `--password-file=${config.passwordFile}`, target];
+  const args = ["-v", "--list-only", "--no-recursive", `--password-file=${config.passwordFile}`, target];
 
   return new Promise((resolve, reject) => {
     execFile(config.rsyncBin, args, { timeout: 30000, maxBuffer: 1024 * 1024 * 8 }, (error, stdout, stderr) => {
@@ -242,6 +247,8 @@ function listRemoteDirectory(config, remotePath) {
         .split(/\r?\n/)
         .map(parseRsyncLine)
         .filter(Boolean)
+        .filter((entry) => entry.name !== ".")
+        .filter((entry) => !entry.name.includes("/"))
         .sort((a, b) => {
           if (a.type !== b.type) {
             return a.type === "directory" ? -1 : 1;
@@ -313,26 +320,50 @@ async function handleApi(req, res, url) {
   sendJson(res, 404, { error: "API endpoint not found" });
 }
 
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+function createServer() {
+  return http.createServer((req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
 
-  if (url.pathname.startsWith("/api/")) {
-    handleApi(req, res, url);
-    return;
-  }
+    if (url.pathname.startsWith("/api/")) {
+      handleApi(req, res, url);
+      return;
+    }
 
-  const requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
-  const safePath = path.normalize(requestedPath).replace(/^(\.\.[/\\])+/, "");
-  const filePath = path.join(PUBLIC_DIR, safePath);
+    const requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
+    const safePath = path.normalize(requestedPath).replace(/^(\.\.[/\\])+/, "");
+    const filePath = path.join(PUBLIC_DIR, safePath);
 
-  if (!filePath.startsWith(PUBLIC_DIR)) {
-    sendJson(res, 403, { error: "Forbidden" });
-    return;
-  }
+    if (!filePath.startsWith(PUBLIC_DIR)) {
+      sendJson(res, 403, { error: "Forbidden" });
+      return;
+    }
 
-  sendFile(res, filePath);
-});
+    sendFile(res, filePath);
+  });
+}
 
-server.listen(PORT, HOST, () => {
-  console.log(`Rsync browser running on http://${HOST}:${PORT}`);
-});
+function startServer() {
+  const server = createServer();
+
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(PORT, HOST, () => {
+      server.off("error", reject);
+      const address = `http://${HOST}:${PORT}`;
+      console.log(`Rsync browser running on ${address}`);
+      resolve({ server, address });
+    });
+  });
+}
+
+module.exports = {
+  CONFIG_PATH,
+  startServer,
+};
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+}

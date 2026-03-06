@@ -16,6 +16,11 @@
   box-sizing: border-box;
 }
 
+::selection {
+  background: rgba(13, 124, 102, 0.2);
+  color: var(--text);
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -156,22 +161,40 @@ h2 {
 }
 
 .crumb,
-.file-link,
 button {
   font: inherit;
 }
 
 .crumb {
-  border: 0;
+  all: unset;
+  display: inline-flex;
+  align-items: center;
   border-radius: 999px;
   padding: 6px 10px;
   background: rgba(13, 124, 102, 0.08);
   color: var(--accent-strong);
   cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .crumb.active {
   background: rgba(13, 124, 102, 0.14);
+}
+
+.crumb:hover,
+.crumb:active {
+  background: rgba(13, 124, 102, 0.14);
+  color: var(--accent-strong);
+}
+
+.crumb:focus-visible {
+  outline: 2px solid rgba(13, 124, 102, 0.22);
+  outline-offset: 2px;
+  background: rgba(13, 124, 102, 0.14);
+  color: var(--accent-strong);
 }
 
 .crumb-sep {
@@ -266,16 +289,37 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
-.file-link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent-strong);
+.clickable-row {
   cursor: pointer;
+}
+
+.dir-entry,
+.file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dir-entry {
+  color: var(--accent-strong);
 }
 
 .file-name {
   color: var(--text);
+}
+
+.entry-icon {
+  flex: 0 0 auto;
+}
+
+.entry-label {
+  color: inherit;
+}
+
+.dir-entry .entry-label::selection,
+.file-name .entry-label::selection {
+  background: rgba(13, 124, 102, 0.2);
+  color: currentColor;
 }
 
 .empty-row {

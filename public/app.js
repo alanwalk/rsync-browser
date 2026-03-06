@@ -56,6 +56,14 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function normalizePath(value) {
+  return String(value || "")
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((segment) => segment && segment !== ".")
+    .join("/");
+}
+
 function showError(message) {
   errorBox.textContent = message;
   errorBox.classList.remove("hidden");
@@ -110,14 +118,14 @@ function renderConfig(config) {
 }
 
 function renderBreadcrumb() {
-  const parts = state.currentPath ? state.currentPath.split("/") : [];
-  const items = ['<button data-path="" class="crumb active">/</button>'];
+  const parts = normalizePath(state.currentPath).split("/").filter(Boolean);
+  const items = ['<span role="button" tabindex="0" data-path="" class="crumb active">Root</span>'];
 
   parts.forEach((part, index) => {
     const path = parts.slice(0, index + 1).join("/");
     items.push('<span class="crumb-sep">/</span>');
     items.push(
-      `<button data-path="${escapeHtml(path)}" class="crumb">${escapeHtml(part)}</button>`
+      `<span role="button" tabindex="0" data-path="${escapeHtml(path)}" class="crumb">${escapeHtml(part)}</span>`
     );
   });
 
@@ -127,22 +135,47 @@ function renderBreadcrumb() {
 function renderTable() {
   fileTable.innerHTML = "";
 
-  if (!state.entries.length) {
+  if (!state.entries.length && !state.currentPath) {
     fileTable.appendChild(emptyState.content.cloneNode(true));
+    return;
+  }
+
+  if (state.currentPath) {
+    const parentRow = document.createElement("tr");
+    const parentPath = normalizePath(state.currentPath).split("/").slice(0, -1).join("/");
+    parentRow.className = "clickable-row";
+    parentRow.dataset.path = parentPath;
+    parentRow.innerHTML = `
+      <td><span class="dir-entry"><span class="entry-icon" aria-hidden="true">📁</span><span class="entry-label">..</span></span></td>
+      <td>目录</td>
+      <td>-</td>
+      <td>-</td>
+      <td><code>-</code></td>
+    `;
+    fileTable.appendChild(parentRow);
+  }
+
+  if (!state.entries.length) {
     return;
   }
 
   state.entries.forEach((entry) => {
     const row = document.createElement("tr");
-    const nextPath = state.currentPath ? `${state.currentPath}/${entry.name}` : entry.name;
+    const nextPath = normalizePath(
+      state.currentPath ? `${state.currentPath}/${entry.name}` : entry.name
+    );
     const isDir = entry.type === "directory";
+    if (isDir) {
+      row.className = "clickable-row";
+      row.dataset.path = nextPath;
+    }
 
     row.innerHTML = `
       <td>
         ${
           isDir
-            ? `<button class="file-link" data-path="${escapeHtml(nextPath)}">📁 ${escapeHtml(entry.name)}</button>`
-            : `<span class="file-name">📄 ${escapeHtml(entry.name)}</span>`
+            ? `<span class="dir-entry"><span class="entry-icon" aria-hidden="true">📁</span><span class="entry-label">${escapeHtml(entry.name)}</span></span>`
+            : `<span class="file-name"><span class="entry-icon" aria-hidden="true">📄</span><span class="entry-label">${escapeHtml(entry.name)}</span></span>`
         }
       </td>
       <td>${isDir ? "目录" : "文件"}</td>
@@ -195,7 +228,7 @@ async function loadPath(path = "") {
       throw new Error(payload.error || "加载失败");
     }
 
-    state.currentPath = payload.currentPath;
+    state.currentPath = normalizePath(payload.currentPath);
     state.entries = payload.entries;
     renderConfig(payload.config);
     renderBreadcrumb();
@@ -271,7 +304,7 @@ upButton.addEventListener("click", () => {
   if (!state.currentPath) {
     return;
   }
-  const parent = state.currentPath.split("/").slice(0, -1).join("/");
+  const parent = normalizePath(state.currentPath).split("/").slice(0, -1).join("/");
   loadPath(parent);
 });
 
@@ -280,15 +313,27 @@ breadcrumb.addEventListener("click", (event) => {
   if (!target) {
     return;
   }
-  loadPath(target.dataset.path || "");
+  loadPath(normalizePath(target.dataset.path || ""));
 });
 
-fileTable.addEventListener("click", (event) => {
-  const target = event.target.closest(".file-link");
+breadcrumb.addEventListener("keydown", (event) => {
+  const target = event.target.closest("[data-path]");
   if (!target) {
     return;
   }
-  loadPath(target.dataset.path || "");
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+  event.preventDefault();
+  loadPath(normalizePath(target.dataset.path || ""));
+});
+
+fileTable.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-path]");
+  if (!target) {
+    return;
+  }
+  loadPath(normalizePath(target.dataset.path || ""));
 });
 
 configForm.addEventListener("submit", saveConfig);
