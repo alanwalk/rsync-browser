@@ -26,8 +26,10 @@ const userInput = document.getElementById("userInput");
 const hostInput = document.getElementById("hostInput");
 const moduleInput = document.getElementById("moduleInput");
 const rsyncBinInput = document.getElementById("rsyncBinInput");
+const cdnBaseUrlInput = document.getElementById("cdnBaseUrlInput");
 const cancelConfigButton = document.getElementById("cancelConfigButton");
 const saveConfigButton = document.getElementById("saveConfigButton");
+const cdnBaseUrlValue = document.getElementById("cdnBaseUrlValue");
 const previewPanel = document.getElementById("previewPanel");
 const previewTitle = document.getElementById("previewTitle");
 const previewPath = document.getElementById("previewPath");
@@ -35,6 +37,7 @@ const previewSize = document.getElementById("previewSize");
 const previewModified = document.getElementById("previewModified");
 const previewContent = document.getElementById("previewContent");
 const closePreviewButton = document.getElementById("closePreviewButton");
+const downloadPreviewLink = document.getElementById("downloadPreviewLink");
 const toggleWrapButton = document.getElementById("toggleWrapButton");
 let wrapEnabled = true;
 
@@ -120,17 +123,24 @@ function setConfigLoading(loading) {
   hostInput.disabled = loading;
   moduleInput.disabled = loading;
   rsyncBinInput.disabled = loading;
+  cdnBaseUrlInput.disabled = loading;
+}
+
+function buildDownloadUrl(filePath) {
+  return `/api/download?path=${encodeURIComponent(filePath)}`;
 }
 
 function renderConfig(config) {
   state.config = config;
   remoteTarget.textContent = config.remote;
   rsyncBin.textContent = config.rsyncBin;
+  cdnBaseUrlValue.textContent = config.cdnBaseUrl || "-";
   passwordFileInput.value = config.passwordFile;
   userInput.value = config.user;
   hostInput.value = config.host;
   moduleInput.value = config.module;
   rsyncBinInput.value = config.rsyncBin;
+  cdnBaseUrlInput.value = config.cdnBaseUrl || "";
 }
 
 function renderBreadcrumb() {
@@ -162,12 +172,14 @@ function renderTable() {
     const parentPath = normalizePath(state.currentPath).split("/").slice(0, -1).join("/");
     parentRow.className = "clickable-row";
     parentRow.dataset.path = parentPath;
+    parentRow.dataset.type = "directory";
     parentRow.innerHTML = `
       <td><span class="dir-entry"><span class="entry-icon" aria-hidden="true">📁</span><span class="entry-label">..</span></span></td>
       <td>目录</td>
       <td>-</td>
       <td>-</td>
       <td><code>-</code></td>
+      <td>-</td>
     `;
     fileTable.appendChild(parentRow);
   }
@@ -184,6 +196,8 @@ function renderTable() {
     const isDir = entry.type === "directory";
     row.className = "clickable-row";
     row.dataset.path = nextPath;
+    row.dataset.type = entry.type;
+    row.dataset.modifiedAt = entry.modifiedAt || "-";
 
     row.innerHTML = `
       <td>
@@ -197,6 +211,13 @@ function renderTable() {
       <td>${isDir ? "-" : formatBytes(entry.size)}</td>
       <td>${escapeHtml(entry.modifiedAt)}</td>
       <td><code>${escapeHtml(entry.permissions)}</code></td>
+      <td>
+        ${
+          isDir
+            ? "-"
+            : `<a class="button secondary action-link" href="${buildDownloadUrl(nextPath)}" data-download-link="true">下载</a>`
+        }
+      </td>
     `;
 
     fileTable.appendChild(row);
@@ -290,6 +311,8 @@ function showPreviewLoading() {
   previewSize.textContent = "-";
   previewModified.textContent = "-";
   previewContent.textContent = "正在获取文件内容...";
+  downloadPreviewLink.classList.add("hidden");
+  downloadPreviewLink.removeAttribute("href");
   previewContent.classList.toggle("wrap", wrapEnabled);
   toggleWrapButton.textContent = wrapEnabled ? "取消换行" : "自动换行";
 }
@@ -300,6 +323,8 @@ function showPreviewError(name, message) {
   previewSize.textContent = "-";
   previewModified.textContent = "-";
   previewContent.textContent = message;
+  downloadPreviewLink.classList.add("hidden");
+  downloadPreviewLink.removeAttribute("href");
 }
 
 function renderPreview(data) {
@@ -308,6 +333,8 @@ function renderPreview(data) {
   previewSize.textContent = formatBytes(new TextEncoder().encode(data.content).length);
   previewModified.textContent = data.modifiedAt || "-";
   previewContent.textContent = data.content;
+  downloadPreviewLink.href = buildDownloadUrl(data.path);
+  downloadPreviewLink.classList.remove("hidden");
 }
 
 function closePreview() {
@@ -321,26 +348,33 @@ function toggleWrap() {
   toggleWrapButton.textContent = wrapEnabled ? "取消换行" : "自动换行";
 }
 
-async function previewFile(name) {
-  if (!isTextFile(name)) {
+async function previewFile(filePath, modifiedAt) {
+  const fileName = filePath.split("/").pop() || "";
+  if (!isTextFile(fileName)) {
     return;
   }
 
-  const fullPath = state.currentPath ? `${state.currentPath}/${name}` : name;
+  if (!state.config || !state.config.cdnBaseUrl) {
+    showError("预览文件前，请先在配置中填写 CDN 地址。");
+    setView("setup");
+    return;
+  }
+
   showPreviewLoading();
 
   try {
-    const response = await fetch(`/api/cat?path=${encodeURIComponent(fullPath)}`);
+    const response = await fetch(`/api/cat?path=${encodeURIComponent(filePath)}`);
     const payload = await response.json();
 
     if (!response.ok) {
-      showPreviewError(name, payload.error || "加载文件内容失败");
+      showPreviewError(fileName, payload.error || "加载文件内容失败");
       return;
     }
 
+    payload.modifiedAt = modifiedAt || payload.modifiedAt || "-";
     renderPreview(payload);
   } catch (error) {
-    showPreviewError(name, error.message);
+    showPreviewError(fileName, error.message);
   }
 }
 
@@ -355,6 +389,7 @@ async function saveConfig(event) {
     host: hostInput.value.trim(),
     module: moduleInput.value.trim(),
     rsyncBin: rsyncBinInput.value.trim(),
+    cdnBaseUrl: cdnBaseUrlInput.value.trim(),
   };
 
   try {
@@ -427,17 +462,27 @@ breadcrumb.addEventListener("keydown", (event) => {
 });
 
 fileTable.addEventListener("click", (event) => {
+  if (event.target.closest("[data-download-link]")) {
+    return;
+  }
   const target = event.target.closest("[data-path]");
   if (!target) {
     return;
   }
   const rowPath = normalizePath(target.dataset.path || "");
+  const entryType = target.dataset.type || "directory";
   const fileName = rowPath.split("/").pop() || "";
-  if (isTextFile(fileName)) {
-    previewFile(fileName);
+  if (entryType === "directory") {
+    navigateTo(rowPath);
     return;
   }
-  navigateTo(rowPath);
+
+  if (isTextFile(fileName)) {
+    previewFile(rowPath, target.dataset.modifiedAt || "-");
+    return;
+  }
+
+  window.location.href = buildDownloadUrl(rowPath);
 });
 
 closePreviewButton.addEventListener("click", closePreview);

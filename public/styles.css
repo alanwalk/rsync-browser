@@ -132,7 +132,7 @@ h2 {
 }
 
 .meta-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 18px;
 }
 
@@ -165,7 +165,8 @@ h2 {
 }
 
 .crumb,
-button {
+button,
+.button {
   font: inherit;
 }
 
@@ -221,17 +222,23 @@ button {
   grid-column: span 4;
 }
 
-button {
+button,
+.button {
   border: 0;
   border-radius: 14px;
   padding: 11px 16px;
   background: var(--accent);
   color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   cursor: pointer;
   transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled),
+.button:hover {
   transform: translateY(-1px);
   background: var(--accent-strong);
 }
@@ -241,9 +248,14 @@ button:disabled {
   cursor: not-allowed;
 }
 
-button.secondary {
+button.secondary,
+.button.secondary {
   background: rgba(29, 42, 47, 0.08);
   color: var(--text);
+}
+
+.action-link {
+  padding: 8px 12px;
 }
 
 .error-box {

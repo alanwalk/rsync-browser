@@ -29,7 +29,7 @@
             <p class="eyebrow">Connection</p>
             <h2>连接配置</h2>
           </div>
-          <p class="section-copy">修改后立即用于后续浏览请求，配置会保存在当前项目目录。</p>
+          <p class="section-copy">修改后立即用于后续浏览请求；目录浏览走 rsync，文件预览和下载只走 CDN。</p>
         </div>
 
         <form id="configForm" class="config-form">
@@ -52,6 +52,10 @@
           <label class="field field-wide">
             <span class="label">Rsync 程序路径</span>
             <input id="rsyncBinInput" name="rsyncBin" type="text" />
+          </label>
+          <label class="field field-wide">
+            <span class="label">CDN 文件前缀</span>
+            <input id="cdnBaseUrlInput" name="cdnBaseUrl" type="text" placeholder="https://cdn.example.com/your-module" />
           </label>
           <div class="config-actions">
             <button id="cancelConfigButton" type="button" class="secondary hidden">取消配置</button>
@@ -86,6 +90,10 @@
             <span class="label">状态</span>
             <strong id="statusText">初始化中</strong>
           </div>
+          <div class="meta-card">
+            <span class="label">CDN 文件读取</span>
+            <strong id="cdnBaseUrlValue">-</strong>
+          </div>
         </div>
 
         <div id="loadingBar" class="loading-bar hidden">
@@ -103,6 +111,7 @@
                 <th>大小</th>
                 <th>修改时间</th>
                 <th>权限</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody id="fileTable"></tbody>
@@ -117,6 +126,7 @@
             <h2 id="previewTitle">-</h2>
           </div>
           <div class="actions">
+            <a id="downloadPreviewLink" class="button secondary hidden" href="#">下载</a>
             <button id="toggleWrapButton" class="secondary">自动换行</button>
             <button id="closePreviewButton" class="secondary">关闭</button>
           </div>
@@ -145,7 +155,7 @@
 
     <template id="emptyState">
       <tr>
-        <td colspan="5" class="empty-row">当前目录没有可显示的内容</td>
+        <td colspan="6" class="empty-row">当前目录没有可显示的内容</td>
       </tr>
     </template>
 

@@ -46,6 +46,7 @@ http://127.0.0.1:3000
 - `RSYNC_BIN`: rsync 可执行文件，默认 `/opt/homebrew/bin/rsync`
 - `RSYNC_PASSWORD_FILE`: 密码文件路径，默认 `/tmp/test.passwd`
 - `RSYNC_REMOTE`: 远端 rsync 模块，默认 `your-username@your-rsync-host.example.com::your-rsync-module`
+- `RSYNC_CDN_BASE_URL`: 文件读取 CDN 前缀，默认空；文本预览和文件下载都依赖它
 - `RSYNC_BROWSER_CONFIG_DIR`: 配置目录，默认 `~/.config/rsync-browser`
 - `RSYNC_BROWSER_CONFIG_PATH`: 配置文件路径，默认 `~/.config/rsync-browser/config.json`
 
@@ -73,5 +74,6 @@ HOST=127.0.0.1 PORT=3001 RSYNC_PASSWORD_FILE=/tmp/test.passwd npm start
 - 返回上级
 - 刷新当前目录
 - 显示文件大小、修改时间、权限
-- 文件预览（文本文件）
+- 文件预览（文本文件，通过 CDN 读取）
+- 文件下载（仅通过 CDN）
 - 显示 rsync 错误信息

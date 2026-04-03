@@ -18,6 +18,7 @@ const DEFAULTS = {
   user: "your-username",
   host: "your-rsync-host.example.com",
   module: "your-rsync-module",
+  cdnBaseUrl: process.env.RSYNC_CDN_BASE_URL || "",
 };
 
 function parseRemoteTarget(input) {
@@ -58,6 +59,7 @@ function normalizeConfig(input) {
     user: String(input.user || "").trim(),
     host: String(input.host || "").trim(),
     module: String(input.module || "").trim().replace(/^\/+|\/+$/g, ""),
+    cdnBaseUrl: String(input.cdnBaseUrl || "").trim().replace(/\/+$/g, ""),
   };
 
   if (!config.rsyncBin) {
@@ -77,6 +79,18 @@ function normalizeConfig(input) {
   }
   if (config.module.includes("..")) {
     throw new Error("模块名不合法。");
+  }
+  if (config.cdnBaseUrl) {
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(config.cdnBaseUrl);
+    } catch (error) {
+      throw new Error("CDN 下载前缀必须是合法的 URL。");
+    }
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      throw new Error("CDN 下载前缀只支持 http 或 https。");
+    }
   }
 
   return config;
@@ -190,6 +204,28 @@ function buildRemoteTarget(config, remotePath) {
   return `${base}/${remotePath}/`;
 }
 
+function buildCdnDownloadUrl(cdnBaseUrl, remotePath) {
+  const baseUrl = String(cdnBaseUrl || "").trim().replace(/\/+$/g, "");
+  if (!baseUrl) {
+    return "";
+  }
+
+  const encodedPath = normalizeRemotePath(remotePath)
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `${baseUrl}/${encodedPath}`;
+}
+
+function requireCdnDownloadUrl(config, remotePath, actionLabel) {
+  const cdnUrl = buildCdnDownloadUrl(config.cdnBaseUrl, remotePath);
+  if (!cdnUrl) {
+    throw new Error(`未配置 CDN 下载前缀，无法${actionLabel}。`);
+  }
+  return cdnUrl;
+}
+
 function parseRsyncLine(line) {
   const trimmed = line.trim();
   if (!trimmed) {
@@ -272,75 +308,25 @@ function listRemoteDirectory(config, remotePath) {
   });
 }
 
-function getRemoteFileMetadata(config, remotePath) {
-  const target = `${config.user}@${config.host}::${config.module}/${remotePath}`;
-  const args = ["-v", "--list-only", "--no-recursive", `--password-file=${config.passwordFile}`, target];
-
-  return new Promise((resolve, reject) => {
-    execFile(config.rsyncBin, args, { timeout: 30000, maxBuffer: 1024 * 1024 * 8 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr.trim() || stdout.trim() || `rsync failed with code ${error.code || "unknown"}`));
-        return;
-      }
-
-      const lines = stdout.split(/\r?\n/);
-      for (const line of lines) {
-        const entry = parseRsyncLine(line);
-        if (entry && entry.name === path.basename(remotePath)) {
-          resolve({ modifiedAt: entry.modifiedAt });
-          return;
-        }
-      }
-      resolve({ modifiedAt: "-" });
-    });
-  });
-}
-
-function readFileContent(config, remotePath) {
-  const target = `${config.user}@${config.host}::${config.module}/${remotePath}`;
-  const tmpDir = os.tmpdir();
-  const tmpFile = path.join(tmpDir, `rsync-browser-${Date.now()}-${path.basename(remotePath)}`);
-  const args = ["-a", `--password-file=${config.passwordFile}`, target, tmpFile];
-
-  console.log(`\n[rsync] ${config.rsyncBin} ${args.join(" ")}`);
-
-  return new Promise((resolve, reject) => {
-    execFile(config.rsyncBin, args, { timeout: 60000, maxBuffer: 1024 * 1024 * 8 }, (error, stdout, stderr) => {
-      if (error) {
-        const errMsg = stderr.trim() || stdout.trim() || `rsync failed with code ${error.code || "unknown"}`;
-        console.error(`[rsync] error: ${errMsg}`);
-        cleanup();
-        reject(new Error(errMsg));
-        return;
-      }
-
-      console.log(`[rsync] completed`);
-      if (stderr.trim()) {
-        console.error(`[rsync] stderr:\n${stderr.trim()}`);
-      }
-
-      fs.readFile(tmpFile, "utf8", (readErr, content) => {
-        cleanup();
-        if (readErr) {
-          reject(new Error(`读取文件失败: ${readErr.message}`));
-          return;
-        }
-
-        resolve({
-          path: remotePath,
-          name: path.basename(remotePath),
-          content,
-          modifiedAt: "-",
-        });
-      });
-    });
+async function readFileContent(config, remotePath) {
+  const cdnUrl = requireCdnDownloadUrl(config, remotePath, "读取文件内容");
+  const response = await fetch(cdnUrl, {
+    redirect: "follow",
+    headers: {
+      Accept: "text/plain, */*",
+    },
   });
 
-  function cleanup() {
-    try {
-      fs.unlinkSync(tmpFile);
-    } catch (_) {}
+  if (!response.ok) {
+    throw new Error(`CDN 读取失败: HTTP ${response.status}`);
   }
+
+  return {
+    path: remotePath,
+    name: path.basename(remotePath),
+    content: await response.text(),
+    modifiedAt: "-",
+  };
 }
 
 async function handleApi(req, res, url) {
@@ -413,19 +399,41 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    getRemoteFileMetadata(currentConfig, remotePath)
-      .then((metadata) => {
-        return readFileContent(currentConfig, remotePath).then((contentResult) => {
-          contentResult.modifiedAt = metadata.modifiedAt;
-          return contentResult;
-        });
-      })
+    readFileContent(currentConfig, remotePath)
       .then((result) => {
         sendJson(res, 200, result);
       })
       .catch((error) => {
-        sendJson(res, 502, { error: error.message, path: remotePath });
+        const statusCode = currentConfig.cdnBaseUrl ? 502 : 409;
+        sendJson(res, statusCode, { error: error.message, path: remotePath });
       });
+    return;
+  }
+
+  if (url.pathname === "/api/download" && req.method === "GET") {
+    let remotePath = "";
+    try {
+      remotePath = normalizeRemotePath(url.searchParams.get("path"));
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+
+    if (!remotePath) {
+      sendJson(res, 400, { error: "文件路径不能为空。" });
+      return;
+    }
+
+    try {
+      const cdnUrl = requireCdnDownloadUrl(currentConfig, remotePath, "下载文件");
+      res.writeHead(302, {
+        Location: cdnUrl,
+        "Cache-Control": "no-store",
+      });
+      res.end();
+    } catch (error) {
+      sendJson(res, 409, { error: error.message, path: remotePath });
+    }
     return;
   }
 
