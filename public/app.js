@@ -17,6 +17,8 @@ const errorBox = document.getElementById("globalErrorBox");
 const refreshButton = document.getElementById("refreshButton");
 const upButton = document.getElementById("upButton");
 const toggleConfigButton = document.getElementById("toggleConfigButton");
+const loadingBar = document.getElementById("loadingBar");
+const breadcrumbPanel = document.getElementById("breadcrumbPanel");
 const emptyState = document.getElementById("emptyState");
 const configForm = document.getElementById("configForm");
 const passwordFileInput = document.getElementById("passwordFileInput");
@@ -26,6 +28,15 @@ const moduleInput = document.getElementById("moduleInput");
 const rsyncBinInput = document.getElementById("rsyncBinInput");
 const cancelConfigButton = document.getElementById("cancelConfigButton");
 const saveConfigButton = document.getElementById("saveConfigButton");
+const previewPanel = document.getElementById("previewPanel");
+const previewTitle = document.getElementById("previewTitle");
+const previewPath = document.getElementById("previewPath");
+const previewSize = document.getElementById("previewSize");
+const previewModified = document.getElementById("previewModified");
+const previewContent = document.getElementById("previewContent");
+const closePreviewButton = document.getElementById("closePreviewButton");
+const toggleWrapButton = document.getElementById("toggleWrapButton");
+let wrapEnabled = true;
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes)) {
@@ -76,12 +87,16 @@ function hideError() {
 
 function applyView() {
   const showBrowser = state.isConfigured && state.view === "browser";
-  const showConfig = !showBrowser;
+  const showPreview = state.view === "preview";
+  const showConfig = state.view === "setup";
   const canCancel = state.isConfigured && state.view === "setup";
+  const showBreadcrumb = showBrowser || showPreview;
 
   browserPanel.classList.toggle("hidden", !showBrowser);
   configPanel.classList.toggle("hidden", !showConfig);
   cancelConfigButton.classList.toggle("hidden", !canCancel);
+  breadcrumbPanel.classList.toggle("hidden", !showBreadcrumb);
+  previewPanel.classList.toggle("hidden", !showPreview);
 }
 
 function setView(nextView) {
@@ -94,6 +109,7 @@ function setLoading(loading) {
   toggleConfigButton.disabled = loading;
   upButton.disabled = loading || !state.currentPath;
   statusText.textContent = loading ? "加载中" : "已就绪";
+  loadingBar.classList.toggle("hidden", !loading);
 }
 
 function setConfigLoading(loading) {
@@ -119,13 +135,14 @@ function renderConfig(config) {
 
 function renderBreadcrumb() {
   const parts = normalizePath(state.currentPath).split("/").filter(Boolean);
-  const items = ['<span role="button" tabindex="0" data-path="" class="crumb active">Root</span>'];
+  const items = ['<span role="button" tabindex="0" data-path="" class="crumb">Root</span>'];
 
   parts.forEach((part, index) => {
     const path = parts.slice(0, index + 1).join("/");
+    const isLast = index === parts.length - 1;
     items.push('<span class="crumb-sep">/</span>');
     items.push(
-      `<span role="button" tabindex="0" data-path="${escapeHtml(path)}" class="crumb">${escapeHtml(part)}</span>`
+      `<span role="button" tabindex="0" data-path="${escapeHtml(path)}" class="crumb${isLast ? " active" : ""}">${escapeHtml(part)}</span>`
     );
   });
 
@@ -165,10 +182,8 @@ function renderTable() {
       state.currentPath ? `${state.currentPath}/${entry.name}` : entry.name
     );
     const isDir = entry.type === "directory";
-    if (isDir) {
-      row.className = "clickable-row";
-      row.dataset.path = nextPath;
-    }
+    row.className = "clickable-row";
+    row.dataset.path = nextPath;
 
     row.innerHTML = `
       <td>
@@ -246,6 +261,89 @@ async function loadPath(path = "") {
   setLoading(false);
 }
 
+async function navigateTo(path) {
+  const normalized = normalizePath(path);
+  if (normalized === state.currentPath) {
+    return;
+  }
+  await loadPath(normalized);
+}
+
+const TEXT_EXTENSIONS = new Set([
+  ".txt", ".md", ".json", ".xml", ".yaml", ".yml", ".csv",
+  ".js", ".ts", ".jsx", ".tsx", ".css", ".scss", ".less",
+  ".html", ".htm", ".log", ".ini", ".cfg", ".conf", ".env",
+  ".sh", ".bash", ".zsh", ".py", ".rb", ".go", ".rs", ".java",
+  ".c", ".cpp", ".h", ".hpp", ".php", ".sql", ".toml",
+]);
+
+function isTextFile(name) {
+  const dot = name.lastIndexOf(".");
+  if (dot === -1) return false;
+  return TEXT_EXTENSIONS.has(name.slice(dot).toLowerCase());
+}
+
+function showPreviewLoading() {
+  setView("preview");
+  previewTitle.textContent = "加载中";
+  previewPath.textContent = "-";
+  previewSize.textContent = "-";
+  previewModified.textContent = "-";
+  previewContent.textContent = "正在获取文件内容...";
+  previewContent.classList.toggle("wrap", wrapEnabled);
+  toggleWrapButton.textContent = wrapEnabled ? "取消换行" : "自动换行";
+}
+
+function showPreviewError(name, message) {
+  previewTitle.textContent = name;
+  previewPath.textContent = "-";
+  previewSize.textContent = "-";
+  previewModified.textContent = "-";
+  previewContent.textContent = message;
+}
+
+function renderPreview(data) {
+  previewTitle.textContent = data.name;
+  previewPath.textContent = data.path;
+  previewSize.textContent = formatBytes(new TextEncoder().encode(data.content).length);
+  previewModified.textContent = data.modifiedAt || "-";
+  previewContent.textContent = data.content;
+}
+
+function closePreview() {
+  setView("browser");
+  hideError();
+}
+
+function toggleWrap() {
+  wrapEnabled = !wrapEnabled;
+  previewContent.classList.toggle("wrap", wrapEnabled);
+  toggleWrapButton.textContent = wrapEnabled ? "取消换行" : "自动换行";
+}
+
+async function previewFile(name) {
+  if (!isTextFile(name)) {
+    return;
+  }
+
+  const fullPath = state.currentPath ? `${state.currentPath}/${name}` : name;
+  showPreviewLoading();
+
+  try {
+    const response = await fetch(`/api/cat?path=${encodeURIComponent(fullPath)}`);
+    const payload = await response.json();
+
+    if (!response.ok) {
+      showPreviewError(name, payload.error || "加载文件内容失败");
+      return;
+    }
+
+    renderPreview(payload);
+  } catch (error) {
+    showPreviewError(name, error.message);
+  }
+}
+
 async function saveConfig(event) {
   event.preventDefault();
   setConfigLoading(true);
@@ -305,7 +403,7 @@ upButton.addEventListener("click", () => {
     return;
   }
   const parent = normalizePath(state.currentPath).split("/").slice(0, -1).join("/");
-  loadPath(parent);
+  navigateTo(parent);
 });
 
 breadcrumb.addEventListener("click", (event) => {
@@ -313,7 +411,7 @@ breadcrumb.addEventListener("click", (event) => {
   if (!target) {
     return;
   }
-  loadPath(normalizePath(target.dataset.path || ""));
+  navigateTo(target.dataset.path || "");
 });
 
 breadcrumb.addEventListener("keydown", (event) => {
@@ -325,7 +423,7 @@ breadcrumb.addEventListener("keydown", (event) => {
     return;
   }
   event.preventDefault();
-  loadPath(normalizePath(target.dataset.path || ""));
+  navigateTo(target.dataset.path || "");
 });
 
 fileTable.addEventListener("click", (event) => {
@@ -333,8 +431,17 @@ fileTable.addEventListener("click", (event) => {
   if (!target) {
     return;
   }
-  loadPath(normalizePath(target.dataset.path || ""));
+  const rowPath = normalizePath(target.dataset.path || "");
+  const fileName = rowPath.split("/").pop() || "";
+  if (isTextFile(fileName)) {
+    previewFile(fileName);
+    return;
+  }
+  navigateTo(rowPath);
 });
+
+closePreviewButton.addEventListener("click", closePreview);
+toggleWrapButton.addEventListener("click", toggleWrap);
 
 configForm.addEventListener("submit", saveConfig);
 

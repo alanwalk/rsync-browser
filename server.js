@@ -232,15 +232,26 @@ function listRemoteDirectory(config, remotePath) {
   const target = buildRemoteTarget(config, remotePath);
   const args = ["-v", "--list-only", "--no-recursive", `--password-file=${config.passwordFile}`, target];
 
+  console.log(`\n[rsync] ${config.rsyncBin} ${args.join(" ")}`);
+
   return new Promise((resolve, reject) => {
     execFile(config.rsyncBin, args, { timeout: 30000, maxBuffer: 1024 * 1024 * 8 }, (error, stdout, stderr) => {
       if (error) {
+        console.error(`[rsync] error: ${stderr.trim() || stdout.trim() || `failed with code ${error.code || "unknown"}`}`);
         reject(
           new Error(
             stderr.trim() || stdout.trim() || `rsync failed with code ${error.code || "unknown"}`
           )
         );
         return;
+      }
+
+      console.log(`[rsync] completed, ${stdout.split(/\r?\n/).filter(Boolean).length} raw lines`);
+      if (stdout.trim()) {
+        console.log(`[rsync] output:\n${stdout.trim()}`);
+      }
+      if (stderr.trim()) {
+        console.error(`[rsync] stderr:\n${stderr.trim()}`);
       }
 
       const entries = stdout
@@ -259,6 +270,77 @@ function listRemoteDirectory(config, remotePath) {
       resolve(entries);
     });
   });
+}
+
+function getRemoteFileMetadata(config, remotePath) {
+  const target = `${config.user}@${config.host}::${config.module}/${remotePath}`;
+  const args = ["-v", "--list-only", "--no-recursive", `--password-file=${config.passwordFile}`, target];
+
+  return new Promise((resolve, reject) => {
+    execFile(config.rsyncBin, args, { timeout: 30000, maxBuffer: 1024 * 1024 * 8 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(stderr.trim() || stdout.trim() || `rsync failed with code ${error.code || "unknown"}`));
+        return;
+      }
+
+      const lines = stdout.split(/\r?\n/);
+      for (const line of lines) {
+        const entry = parseRsyncLine(line);
+        if (entry && entry.name === path.basename(remotePath)) {
+          resolve({ modifiedAt: entry.modifiedAt });
+          return;
+        }
+      }
+      resolve({ modifiedAt: "-" });
+    });
+  });
+}
+
+function readFileContent(config, remotePath) {
+  const target = `${config.user}@${config.host}::${config.module}/${remotePath}`;
+  const tmpDir = os.tmpdir();
+  const tmpFile = path.join(tmpDir, `rsync-browser-${Date.now()}-${path.basename(remotePath)}`);
+  const args = ["-a", `--password-file=${config.passwordFile}`, target, tmpFile];
+
+  console.log(`\n[rsync] ${config.rsyncBin} ${args.join(" ")}`);
+
+  return new Promise((resolve, reject) => {
+    execFile(config.rsyncBin, args, { timeout: 60000, maxBuffer: 1024 * 1024 * 8 }, (error, stdout, stderr) => {
+      if (error) {
+        const errMsg = stderr.trim() || stdout.trim() || `rsync failed with code ${error.code || "unknown"}`;
+        console.error(`[rsync] error: ${errMsg}`);
+        cleanup();
+        reject(new Error(errMsg));
+        return;
+      }
+
+      console.log(`[rsync] completed`);
+      if (stderr.trim()) {
+        console.error(`[rsync] stderr:\n${stderr.trim()}`);
+      }
+
+      fs.readFile(tmpFile, "utf8", (readErr, content) => {
+        cleanup();
+        if (readErr) {
+          reject(new Error(`读取文件失败: ${readErr.message}`));
+          return;
+        }
+
+        resolve({
+          path: remotePath,
+          name: path.basename(remotePath),
+          content,
+          modifiedAt: "-",
+        });
+      });
+    });
+  });
+
+  function cleanup() {
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch (_) {}
+  }
 }
 
 async function handleApi(req, res, url) {
@@ -313,6 +395,36 @@ async function handleApi(req, res, url) {
           currentPath: remotePath,
           config: toClientConfig(currentConfig),
         });
+      });
+    return;
+  }
+
+  if (url.pathname === "/api/cat" && req.method === "GET") {
+    let remotePath = "";
+    try {
+      remotePath = normalizeRemotePath(url.searchParams.get("path"));
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+
+    if (!remotePath) {
+      sendJson(res, 400, { error: "文件路径不能为空。" });
+      return;
+    }
+
+    getRemoteFileMetadata(currentConfig, remotePath)
+      .then((metadata) => {
+        return readFileContent(currentConfig, remotePath).then((contentResult) => {
+          contentResult.modifiedAt = metadata.modifiedAt;
+          return contentResult;
+        });
+      })
+      .then((result) => {
+        sendJson(res, 200, result);
+      })
+      .catch((error) => {
+        sendJson(res, 502, { error: error.message, path: remotePath });
       });
     return;
   }

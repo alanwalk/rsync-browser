@@ -10,13 +10,18 @@
     <main class="app-shell">
       <section class="hero">
         <p class="eyebrow">Rsync Remote Browser</p>
-        <h1>服务器文件浏览</h1>
+        <h1>Rsync 文件浏览器</h1>
         <p class="subtitle">
           基于 `rsync --list-only` 的只读浏览器，用来查看远端模块中的目录和文件。
         </p>
       </section>
 
       <div id="globalErrorBox" class="error-box hidden"></div>
+
+      <section id="breadcrumbPanel" class="panel breadcrumb-panel hidden">
+        <div class="label">当前路径</div>
+        <div id="breadcrumb" class="breadcrumb">/</div>
+      </section>
 
       <section id="configPanel" class="panel config-panel">
         <div class="section-head">
@@ -60,8 +65,6 @@
           <div>
             <p class="eyebrow">Browser</p>
             <h2>目录浏览</h2>
-            <div class="label">当前路径</div>
-            <div id="breadcrumb" class="breadcrumb">/</div>
           </div>
           <div class="actions">
             <button id="toggleConfigButton" class="secondary">配置</button>
@@ -85,6 +88,12 @@
           </div>
         </div>
 
+        <div id="loadingBar" class="loading-bar hidden">
+          <div class="loading-bar-track">
+            <div class="loading-bar-indicator"></div>
+          </div>
+        </div>
+
         <div class="table-wrap">
           <table>
             <thead>
@@ -98,6 +107,38 @@
             </thead>
             <tbody id="fileTable"></tbody>
           </table>
+        </div>
+      </section>
+
+      <section id="previewPanel" class="panel hidden">
+        <div class="section-head browser-head">
+          <div>
+            <p class="eyebrow">Preview</p>
+            <h2 id="previewTitle">-</h2>
+          </div>
+          <div class="actions">
+            <button id="toggleWrapButton" class="secondary">自动换行</button>
+            <button id="closePreviewButton" class="secondary">关闭</button>
+          </div>
+        </div>
+
+        <div class="preview-meta">
+          <div class="meta-card">
+            <span class="label">路径</span>
+            <strong id="previewPath">-</strong>
+          </div>
+          <div class="meta-card">
+            <span class="label">大小</span>
+            <strong id="previewSize">-</strong>
+          </div>
+          <div class="meta-card">
+            <span class="label">修改时间</span>
+            <strong id="previewModified">-</strong>
+          </div>
+        </div>
+
+        <div class="preview-content-wrap">
+          <pre id="previewContent" class="preview-content"></pre>
         </div>
       </section>
     </main>

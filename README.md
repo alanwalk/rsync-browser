@@ -73,4 +73,5 @@ HOST=127.0.0.1 PORT=3001 RSYNC_PASSWORD_FILE=/tmp/test.passwd npm start
 - 返回上级
 - 刷新当前目录
 - 显示文件大小、修改时间、权限
+- 文件预览（文本文件）
 - 显示 rsync 错误信息
